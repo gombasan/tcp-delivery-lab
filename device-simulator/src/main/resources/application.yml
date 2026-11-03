@@ -1,0 +1,18 @@
+spring:
+  application:
+    name: device-simulator
+  main:
+    web-application-type: none
+# Reserved configuration for phase 1; sending is not implemented yet.
+lab:
+  transport: ${LAB_TRANSPORT:tcp}
+  device-id: ${DEVICE_ID:GW001}
+  tcp:
+    host: ${TCP_HOST:localhost}
+    port: ${TCP_PORT:19000}
+  mqtt:
+    broker-uri: ${MQTT_BROKER_URI:tcp://localhost:1883}
+    client-id: ${MQTT_CLIENT_ID:lab-device-GW001}
+    topic: ${MQTT_TOPIC:lab/devices/GW001/telemetry}
+    qos: ${MQTT_QOS:1}
+    retain: false

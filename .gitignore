@@ -1,0 +1,19 @@
+# Build and IDE
+.gradle/
+**/build/
+.idea/
+*.iml
+.classpath
+.project
+.settings/
+.vscode/
+
+# Local configuration and experiment output
+.env
+.env.*
+!.env.example
+*.log
+experiments/results/*
+!experiments/results/.gitkeep
+.DS_Store
+Thumbs.db

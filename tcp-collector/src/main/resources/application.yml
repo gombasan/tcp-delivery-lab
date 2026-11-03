@@ -1,0 +1,15 @@
+spring:
+  application:
+    name: tcp-collector
+server:
+  port: ${SERVER_PORT:18081}
+# Reserved configuration for phase 1; TCP/MQTT listeners are not implemented yet.
+lab:
+  transport: ${LAB_TRANSPORT:tcp}
+  tcp:
+    port: ${TCP_PORT:19000}
+  mqtt:
+    broker-uri: ${MQTT_BROKER_URI:tcp://localhost:1883}
+    client-id: ${MQTT_CLIENT_ID:lab-collector}
+    topic: ${MQTT_TOPIC:lab/devices/+/telemetry}
+    qos: ${MQTT_QOS:1}

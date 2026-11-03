@@ -1,0 +1,5 @@
+spring:
+  application:
+    name: data-processor
+server:
+  port: ${SERVER_PORT:18082}
