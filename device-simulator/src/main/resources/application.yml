@@ -3,13 +3,16 @@ spring:
     name: device-simulator
   main:
     web-application-type: none
-# Reserved configuration for phase 1; sending is not implemented yet.
+# TCP 송신 설정이며, 실행 시 자동 전송은 아직 연결하지 않았다.
 lab:
   transport: ${LAB_TRANSPORT:tcp}
   device-id: ${DEVICE_ID:GW001}
   tcp:
     host: ${TCP_HOST:localhost}
     port: ${TCP_PORT:9090}
+    connect-timeout-millis: ${TCP_CONNECT_TIMEOUT_MILLIS:3000}
+    read-timeout-millis: ${TCP_READ_TIMEOUT_MILLIS:3000}
+    aes-key-base64: ${TCP_AES_KEY_BASE64:}
   mqtt:
     broker-uri: ${MQTT_BROKER_URI:tcp://localhost:1883}
     client-id: ${MQTT_CLIENT_ID:lab-device-GW001}
