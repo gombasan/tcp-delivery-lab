@@ -1,5 +1,8 @@
 package dev.tcpdeliverylab.collector.tcp;
 
+import dev.tcpdeliverylab.protocol.AesGcmCodec;
+import dev.tcpdeliverylab.protocol.PacketFormat;
+
 import java.io.DataInputStream;
 import java.io.IOException;
 import java.net.InetSocketAddress;
@@ -94,7 +97,7 @@ public final class TcpReceiver implements AutoCloseable {
 
                 int length = input.readInt();
 
-                validatePacketLength(length);
+                PacketFormat.validateBodyLength(length);
 
                 byte[] packet = new byte[length];
 
@@ -142,10 +145,4 @@ public final class TcpReceiver implements AutoCloseable {
         }
     }
 
-    private void validatePacketLength(int length) {
-        if (length <= AesGcmCodec.NONCE_BYTES + AesGcmCodec.TAG_BYTES
-            || length > AesGcmCodec.MAX_PACKET_BYTES) {
-            throw new IllegalArgumentException("패킷의 길이가 올바르지 않습니다.");
-        }
-    }
 }
