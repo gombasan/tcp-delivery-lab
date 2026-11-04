@@ -3,7 +3,7 @@ spring:
     name: device-simulator
   main:
     web-application-type: none
-# 애플리케이션 시작 시 장비 데이터 한 건을 TCP로 전송한다.
+# 애플리케이션 시작 시 Runner에 지정한 건수와 동시 실행 수로 TCP 전송을 실험한다.
 lab:
   transport: ${LAB_TRANSPORT:tcp}
   device-id: ${DEVICE_ID:GW001}
