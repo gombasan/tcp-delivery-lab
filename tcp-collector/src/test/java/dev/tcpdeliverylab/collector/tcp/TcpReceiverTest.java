@@ -1,6 +1,8 @@
 package dev.tcpdeliverylab.collector.tcp;
 
 import static org.junit.jupiter.api.Assertions.*;
+import dev.tcpdeliverylab.protocol.AesGcmCodec;
+import dev.tcpdeliverylab.protocol.TcpFrameCodec;
 import java.io.DataOutputStream;
 import java.net.Socket;
 import java.nio.ByteBuffer;
@@ -103,8 +105,7 @@ class TcpReceiverTest {
         byte[] packet = codec.encrypt("GW002,18.0".getBytes(StandardCharsets.UTF_8));
         try (Socket socket = connect()) {
             DataOutputStream out = new DataOutputStream(socket.getOutputStream());
-            out.writeInt(packet.length);
-            out.write(packet);
+            out.write(TcpFrameCodec.encode(packet));
             out.flush();
             assertEquals("OK\n", new String(socket.getInputStream().readAllBytes(), StandardCharsets.US_ASCII));
             assertEquals("GW002,18.0", received.poll(2, TimeUnit.SECONDS));

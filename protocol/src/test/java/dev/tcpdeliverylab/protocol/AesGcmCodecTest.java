@@ -1,4 +1,4 @@
-package dev.tcpdeliverylab.collector.tcp;
+package dev.tcpdeliverylab.protocol;
 
 import static org.junit.jupiter.api.Assertions.*;
 import java.nio.charset.StandardCharsets;
