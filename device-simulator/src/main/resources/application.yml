@@ -3,7 +3,7 @@ spring:
     name: device-simulator
   main:
     web-application-type: none
-# TCP 송신 설정이며, 실행 시 자동 전송은 아직 연결하지 않았다.
+# 애플리케이션 시작 시 장비 데이터 한 건을 TCP로 전송한다.
 lab:
   transport: ${LAB_TRANSPORT:tcp}
   device-id: ${DEVICE_ID:GW001}
@@ -12,7 +12,7 @@ lab:
     port: ${TCP_PORT:9090}
     connect-timeout-millis: ${TCP_CONNECT_TIMEOUT_MILLIS:3000}
     read-timeout-millis: ${TCP_READ_TIMEOUT_MILLIS:3000}
-    aes-key-base64: ${TCP_AES_KEY_BASE64:}
+    aes-key-base64: ${TCP_AES_KEY_BASE64:dFNpAVHJtHE9+1MJH8vfkqJWz15Jy97/}
   mqtt:
     broker-uri: ${MQTT_BROKER_URI:tcp://localhost:1883}
     client-id: ${MQTT_CLIENT_ID:lab-device-GW001}

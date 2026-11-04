@@ -2,14 +2,14 @@ spring:
   application:
     name: tcp-collector
 server:
-  port: ${SERVER_PORT:18081}
+  port: ${SERVER_PORT:8081}
 lab:
   transport: ${LAB_TRANSPORT:tcp}
   tcp:
     host: ${TCP_HOST:127.0.0.1}
     port: ${TCP_PORT:9090}
     read-timeout-millis: ${TCP_READ_TIMEOUT_MILLIS:3000}
-    aes-key-base64: ${TCP_AES_KEY_BASE64:}
+    aes-key-base64: ${TCP_AES_KEY_BASE64:dFNpAVHJtHE9+1MJH8vfkqJWz15Jy97/}
   # Reserved for the next learning step. MQTT subscription is not implemented.
   mqtt:
     broker-uri: ${MQTT_BROKER_URI:tcp://localhost:1883}
