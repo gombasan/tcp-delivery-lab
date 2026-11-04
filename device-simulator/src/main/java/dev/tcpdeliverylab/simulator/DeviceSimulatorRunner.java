@@ -4,6 +4,7 @@ import dev.tcpdeliverylab.simulator.tcp.TcpDeviceClient;
 import java.io.IOException;
 import java.net.SocketTimeoutException;
 import java.security.GeneralSecurityException;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.LongSummaryStatistics;
@@ -25,6 +26,8 @@ import org.springframework.stereotype.Component;
 @ConditionalOnProperty(name = "lab.transport", havingValue = "tcp", matchIfMissing = true)
 public class DeviceSimulatorRunner implements ApplicationRunner {
     private static final int DEVICE_COUNT = 100;
+    private static final int SLOW_DEVICE_NUMBER = 50;
+    private static final long SEND_DELAY_MILLIS = 5000;
 
     private final TcpDeviceClient client;
 
@@ -34,6 +37,8 @@ public class DeviceSimulatorRunner implements ApplicationRunner {
     @Override
     public void run(ApplicationArguments args) throws Exception {
         log.info("장비 데이터 전송 실험을 시작합니다. => 동시 전송 장비 수: {}", DEVICE_COUNT);
+        log.info("느린 장비를 설정합니다. => 장비: {}-{}, 연결 후 전송 지연: {}ms",
+                deviceId, SLOW_DEVICE_NUMBER, SEND_DELAY_MILLIS);
 
         CountDownLatch ready = new CountDownLatch(DEVICE_COUNT);
         CountDownLatch start = new CountDownLatch(1);
@@ -42,10 +47,11 @@ public class DeviceSimulatorRunner implements ApplicationRunner {
             List<Future<SendResult>> futures = new ArrayList<>();
             for (int i = 1; i <= DEVICE_COUNT; i++) {
                 String currentDeviceId = deviceId + "-" + i;
+                boolean slowDevice = i == SLOW_DEVICE_NUMBER;
                 futures.add(executor.submit(() -> {
                     ready.countDown();
                     start.await();
-                    return sendOnce(currentDeviceId);
+                    return sendOnce(currentDeviceId, slowDevice);
                 }));
             }
 
@@ -74,9 +80,10 @@ public class DeviceSimulatorRunner implements ApplicationRunner {
                     case TIMEOUT -> timeoutCount++;
                     case FAILURE -> failureCount++;
                 }
-                log.info("장비 전송 결과를 확인합니다. => 장비: {}, 결과: {}, 소요 시간: {}ms, 오류: {}",
+                log.info("장비 전송 결과를 확인합니다. => 장비: {}, 결과: {}, 소요 시간: {}ms, 오류: {}, 오류 메시지: {}, 실패 시각: {}",
                         result.deviceId(), result.outcome().description,
-                        result.elapsedNanos() / 1_000_000.0, result.error());
+                        result.elapsedNanos() / 1_000_000.0, result.error(),
+                        result.errorMessage(), result.failedAt());
             }
 
             log.info("장비 전송 실험을 완료했습니다. => 전체: {}, 성공: {}, 타임아웃: {}, 기타 실패: {}, 전체 소요 시간: {}ms",
@@ -90,22 +97,28 @@ public class DeviceSimulatorRunner implements ApplicationRunner {
         }
     }
 
-    private SendResult sendOnce(String currentDeviceId) {
+    private SendResult sendOnce(String currentDeviceId, boolean slowDevice) {
         // 출발 신호를 받은 뒤 암호화, 연결, 전송과 응답 대기를 측정한다.
         long startedAt = System.nanoTime();
         try {
-            client.send(currentDeviceId + ",23.5");
-            return new SendResult(currentDeviceId, System.nanoTime() - startedAt, Outcome.SUCCESS, "없음");
+            if (slowDevice) {
+                client.send(currentDeviceId + ",23.5", SEND_DELAY_MILLIS);
+            } else {
+                client.send(currentDeviceId + ",23.5");
+            }
+            return new SendResult(currentDeviceId, System.nanoTime() - startedAt,
+                    Outcome.SUCCESS, "없음", "없음", null);
         } catch (SocketTimeoutException e) {
             return new SendResult(currentDeviceId, System.nanoTime() - startedAt,
-                    Outcome.TIMEOUT, e.getClass().getSimpleName());
+                    Outcome.TIMEOUT, e.getClass().getSimpleName(), e.getMessage(), Instant.now());
         } catch (IOException | GeneralSecurityException | RuntimeException e) {
             return new SendResult(currentDeviceId, System.nanoTime() - startedAt,
-                    Outcome.FAILURE, e.getClass().getSimpleName());
+                    Outcome.FAILURE, e.getClass().getSimpleName(), e.getMessage(), Instant.now());
         }
     }
 
     private enum Outcome {
+
         SUCCESS("성공"), TIMEOUT("타임아웃"), FAILURE("실패");
 
         private final String description;
@@ -115,6 +128,13 @@ public class DeviceSimulatorRunner implements ApplicationRunner {
         }
     }
 
-    private record SendResult(String deviceId, long elapsedNanos, Outcome outcome, String error) {
+    private record SendResult(
+        String deviceId,
+        long elapsedNanos,
+        Outcome outcome,
+        String error,
+        String errorMessage,
+        Instant failedAt
+    ) {
     }
 }
