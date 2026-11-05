@@ -6,9 +6,12 @@ import dev.tcpdeliverylab.protocol.PacketFormat;
 import java.io.DataInputStream;
 import java.io.IOException;
 import java.net.InetSocketAddress;
-import java.net.ServerSocket;
 import java.net.Socket;
 import java.nio.ByteBuffer;
+import java.nio.channels.SelectionKey;
+import java.nio.channels.Selector;
+import java.nio.channels.ServerSocketChannel;
+import java.nio.channels.SocketChannel;
 import java.nio.charset.CharacterCodingException;
 import java.nio.charset.StandardCharsets;
 import java.security.GeneralSecurityException;
@@ -25,7 +28,8 @@ public final class TcpReceiver implements AutoCloseable {
     private final Consumer<String> onMessage;
     private volatile boolean running;
     private volatile Socket activeSocket;
-    private ServerSocket listener;
+    private ServerSocketChannel listener;
+    private Selector selector;
     private Thread worker;
 
     public TcpReceiver(
@@ -53,16 +57,24 @@ public final class TcpReceiver implements AutoCloseable {
             throw new IllegalStateException("기존에 실행된 Listener 가 존재합니다.");
         }
 
-        ServerSocket socket = new ServerSocket();
+        ServerSocketChannel channel = ServerSocketChannel.open();
 
+        Selector acceptSelector = null;
         try {
-            socket.bind(new InetSocketAddress(host, port));
+            channel.configureBlocking(false);
+            channel.bind(new InetSocketAddress(host, port));
+            acceptSelector = Selector.open();
+            channel.register(acceptSelector, SelectionKey.OP_ACCEPT);
         } catch (IOException | RuntimeException e) {
-            socket.close();
-            throw e;
+            try (channel) {
+                try (Selector failedSelector = acceptSelector) {
+                    throw e;
+                }
+            }
         }
 
-        listener = socket;
+        listener = channel;
+        selector = acceptSelector;
         running = true;
         worker = new Thread(this::receiveLoop, "tcp-receiver");
         worker.setDaemon(true);
@@ -76,49 +88,64 @@ public final class TcpReceiver implements AutoCloseable {
             throw new IllegalStateException("실행된 Listener 가 없습니다. start() 를 먼저 호출하세요.");
         }
 
-        return listener.getLocalPort();
+        return listener.socket().getLocalPort();
     }
 
     private void receiveLoop() {
 
         while (running) {
 
-            try (Socket socket = listener.accept()) {
-
-                activeSocket = socket;
-
-                // 연결을 기다리는 사이 종료됐으면 수신 처리를 건너뛴다.
-                if (!running) {
+            try {
+                if (selector.select() == 0 || !running) {
                     continue;
                 }
 
-                socket.setSoTimeout(readTimeoutMillis);
-                DataInputStream input = new DataInputStream(socket.getInputStream());
+                // 이 Selector에는 리스너 하나만 등록되어 있다.
+                selector.selectedKeys().clear();
+                SocketChannel connection = listener.accept();
+                if (connection == null) {
+                    continue;
+                }
 
-                int length = input.readInt();
-
-                PacketFormat.validateBodyLength(length);
-
-                byte[] packet = new byte[length];
-
-                input.readFully(packet);
-
-                byte[] plaintext = codec.decrypt(packet);
-                String message = decodeUtf8(plaintext);
-
-                onMessage.accept(message);
-
-                socket.getOutputStream().write("OK\n".getBytes(StandardCharsets.US_ASCII));
-                socket.getOutputStream().flush();
-
+                receive(connection.socket());
             } catch (IOException | GeneralSecurityException | RuntimeException e) {
-
                 if (running) {
                     log.warn("TCP 메시지 처리 중 오류가 발생했습니다. => {}", e.getClass().getSimpleName());
                 }
             } finally {
                 activeSocket = null;
             }
+        }
+    }
+
+    private void receive(Socket socket) throws IOException, GeneralSecurityException {
+        try (socket) {
+
+            activeSocket = socket;
+
+            // 연결을 기다리는 사이 종료됐으면 수신 처리를 건너뛴다.
+            if (!running) {
+                return;
+            }
+
+            socket.setSoTimeout(readTimeoutMillis);
+            DataInputStream input = new DataInputStream(socket.getInputStream());
+
+            int length = input.readInt();
+
+            PacketFormat.validateBodyLength(length);
+
+            byte[] packet = new byte[length];
+
+            input.readFully(packet);
+
+            byte[] plaintext = codec.decrypt(packet);
+            String message = decodeUtf8(plaintext);
+
+            onMessage.accept(message);
+
+            socket.getOutputStream().write("OK\n".getBytes(StandardCharsets.US_ASCII));
+            socket.getOutputStream().flush();
         }
     }
 
@@ -129,6 +156,9 @@ public final class TcpReceiver implements AutoCloseable {
     @Override
     public void close() throws IOException {
         running = false;
+        if (selector != null) {
+            selector.close();
+        }
         if (listener != null) {
             listener.close();
         }
