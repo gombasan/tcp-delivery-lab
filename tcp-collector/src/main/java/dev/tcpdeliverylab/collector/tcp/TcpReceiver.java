@@ -3,10 +3,9 @@ package dev.tcpdeliverylab.collector.tcp;
 import dev.tcpdeliverylab.protocol.AesGcmCodec;
 import dev.tcpdeliverylab.protocol.PacketFormat;
 
-import java.io.DataInputStream;
+import java.io.EOFException;
 import java.io.IOException;
 import java.net.InetSocketAddress;
-import java.net.Socket;
 import java.nio.ByteBuffer;
 import java.nio.channels.SelectionKey;
 import java.nio.channels.Selector;
@@ -15,6 +14,8 @@ import java.nio.channels.SocketChannel;
 import java.nio.charset.CharacterCodingException;
 import java.nio.charset.StandardCharsets;
 import java.security.GeneralSecurityException;
+import java.util.Iterator;
+import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
 import lombok.extern.slf4j.Slf4j;
 
@@ -27,7 +28,6 @@ public final class TcpReceiver implements AutoCloseable {
     private final AesGcmCodec codec;
     private final Consumer<String> onMessage;
     private volatile boolean running;
-    private volatile Socket activeSocket;
     private ServerSocketChannel listener;
     private Selector selector;
     private Thread worker;
@@ -92,61 +92,142 @@ public final class TcpReceiver implements AutoCloseable {
     }
 
     private void receiveLoop() {
+        try {
+            while (running) {
+                selector.select(expireIdleReads());
 
-        while (running) {
+                Iterator<SelectionKey> selected = selector.selectedKeys().iterator();
+                while (running && selected.hasNext()) {
+                    SelectionKey key = selected.next();
+                    selected.remove();
+                    if (!key.isValid()) {
+                        continue;
+                    }
 
+                    try {
+                        if (key.isAcceptable()) {
+                            acceptConnection();
+                        } else if (key.isReadable()) {
+                            readMessage(key);
+                        } else if (key.isWritable()) {
+                            writeResponse(key);
+                        }
+                    } catch (IOException | GeneralSecurityException | RuntimeException e) {
+                        if (key.channel() instanceof SocketChannel connection) {
+                            closeConnection(connection);
+                        }
+                        log.warn("TCP 메시지 처리 중 오류가 발생했습니다. => {}", e.getClass().getSimpleName());
+                    }
+                }
+            }
+        } catch (IOException e) {
+            log.warn("TCP 연결을 기다리는 중 오류가 발생했습니다.", e);
+        } finally {
+            for (SelectionKey key : selector.keys()) {
+                if (key.channel() instanceof SocketChannel connection) {
+                    closeConnection(connection);
+                }
+            }
             try {
-                if (selector.select() == 0 || !running) {
-                    continue;
-                }
-
-                // 이 Selector에는 리스너 하나만 등록되어 있다.
-                selector.selectedKeys().clear();
-                SocketChannel connection = listener.accept();
-                if (connection == null) {
-                    continue;
-                }
-
-                receive(connection.socket());
-            } catch (IOException | GeneralSecurityException | RuntimeException e) {
-                if (running) {
-                    log.warn("TCP 메시지 처리 중 오류가 발생했습니다. => {}", e.getClass().getSimpleName());
-                }
-            } finally {
-                activeSocket = null;
+                selector.close();
+            } catch (IOException e) {
+                log.warn("Selector 종료 중 오류가 발생했습니다.", e);
             }
         }
     }
 
-    private void receive(Socket socket) throws IOException, GeneralSecurityException {
-        try (socket) {
+    private void acceptConnection() throws IOException {
+        SocketChannel connection = listener.accept();
+        if (connection == null) {
+            return;
+        }
 
-            activeSocket = socket;
+        try {
+            connection.configureBlocking(false);
+            connection.register(selector, SelectionKey.OP_READ, new ConnectionState());
+        } catch (IOException | RuntimeException e) {
+            try (connection) {
+                throw e;
+            }
+        }
+    }
 
-            // 연결을 기다리는 사이 종료됐으면 수신 처리를 건너뛴다.
-            if (!running) {
-                return;
+    private void readMessage(SelectionKey key) throws IOException, GeneralSecurityException {
+        SocketChannel connection = (SocketChannel) key.channel();
+        ConnectionState state = (ConnectionState) key.attachment();
+        int bytesRead = connection.read(state.input);
+        if (bytesRead < 0) {
+            throw new EOFException();
+        }
+        if (bytesRead == 0) {
+            return;
+        }
+
+        state.lastReadNanos = System.nanoTime();
+        if (state.input.hasRemaining()) {
+            return;
+        }
+
+        if (state.readingLength) {
+            state.input.flip();
+            int length = state.input.getInt();
+            PacketFormat.validateBodyLength(length);
+            state.input = ByteBuffer.allocate(length);
+            state.readingLength = false;
+            return;
+        }
+
+        byte[] plaintext = codec.decrypt(state.input.array());
+        onMessage.accept(decodeUtf8(plaintext));
+        state.response = ByteBuffer.wrap("OK\n".getBytes(StandardCharsets.US_ASCII));
+        writeResponse(key);
+    }
+
+    private void writeResponse(SelectionKey key) throws IOException {
+        SocketChannel connection = (SocketChannel) key.channel();
+        ConnectionState state = (ConnectionState) key.attachment();
+        connection.write(state.response);
+        if (state.response.hasRemaining()) {
+            key.interestOps(SelectionKey.OP_WRITE);
+        } else {
+            connection.close();
+        }
+    }
+
+    private long expireIdleReads() {
+        long timeoutNanos = TimeUnit.MILLISECONDS.toNanos(readTimeoutMillis);
+        long now = System.nanoTime();
+        long nextTimeoutNanos = timeoutNanos;
+        for (SelectionKey key : selector.keys()) {
+            if (!key.isValid() || !(key.attachment() instanceof ConnectionState state)
+                    || state.response != null) {
+                continue;
             }
 
-            socket.setSoTimeout(readTimeoutMillis);
-            DataInputStream input = new DataInputStream(socket.getInputStream());
-
-            int length = input.readInt();
-
-            PacketFormat.validateBodyLength(length);
-
-            byte[] packet = new byte[length];
-
-            input.readFully(packet);
-
-            byte[] plaintext = codec.decrypt(packet);
-            String message = decodeUtf8(plaintext);
-
-            onMessage.accept(message);
-
-            socket.getOutputStream().write("OK\n".getBytes(StandardCharsets.US_ASCII));
-            socket.getOutputStream().flush();
+            long remainingNanos = timeoutNanos - (now - state.lastReadNanos);
+            if (remainingNanos <= 0) {
+                closeConnection((SocketChannel) key.channel());
+                log.warn("TCP 메시지 읽기 시간이 초과됐습니다.");
+            } else {
+                nextTimeoutNanos = Math.min(nextTimeoutNanos, remainingNanos);
+            }
         }
+        return Math.max(1, TimeUnit.NANOSECONDS.toMillis(nextTimeoutNanos));
+    }
+
+    private static void closeConnection(SocketChannel connection) {
+        try {
+            connection.close();
+        } catch (IOException e) {
+            log.warn("TCP 연결 종료 중 오류가 발생했습니다.", e);
+        }
+    }
+
+    private static final class ConnectionState {
+        private ByteBuffer input = ByteBuffer.allocate(Integer.BYTES);
+        private boolean readingLength = true;
+        private long lastReadNanos = System.nanoTime();
+        private ByteBuffer response;
     }
 
     private static String decodeUtf8(byte[] plaintext) throws CharacterCodingException {
@@ -157,16 +238,12 @@ public final class TcpReceiver implements AutoCloseable {
     public void close() throws IOException {
         running = false;
         if (selector != null) {
-            selector.close();
+            selector.wakeup();
         }
         if (listener != null) {
             listener.close();
         }
-        Socket socket = activeSocket;
-        if (socket != null) {
-            socket.close();
-        }
-        if (worker != null) {
+        if (worker != null && worker != Thread.currentThread()) {
             try {
                 worker.join(readTimeoutMillis + 1000L);
             } catch (InterruptedException e) {

@@ -95,6 +95,24 @@ class TcpReceiverTest {
         sendValidMessage();
     }
 
+    @Test
+    @DisplayName("한 연결의 길이 필드가 미완성인 동안 다른 연결의 메시지를 처리합니다.")
+    void receivesAnotherMessageWhileLengthIsIncomplete() throws Exception {
+        String message = "GW001,23.5";
+        byte[] packet = codec.encrypt(message.getBytes(StandardCharsets.UTF_8));
+        byte[] frame = TcpFrameCodec.encode(packet);
+
+        try (Socket slow = connect()) {
+            slow.getOutputStream().write(frame, 0, 2);
+
+            sendValidMessage();
+
+            slow.getOutputStream().write(frame, 2, frame.length - 2);
+            assertEquals("OK\n", new String(slow.getInputStream().readAllBytes(), StandardCharsets.US_ASCII));
+            assertEquals(message, received.poll(2, TimeUnit.SECONDS));
+        }
+    }
+
     private Socket connect() throws Exception {
         Socket socket = new Socket("127.0.0.1", receiver.localPort());
         socket.setSoTimeout(3000);
