@@ -4,6 +4,7 @@ plugins {
 
 dependencies {
     implementation project(':protocol')
+    implementation 'org.eclipse.paho:org.eclipse.paho.client.mqttv3:1.2.5'
     implementation platform('org.springframework.boot:spring-boot-dependencies:3.5.6')
     implementation 'org.springframework.boot:spring-boot-starter'
     compileOnly 'org.projectlombok:lombok'

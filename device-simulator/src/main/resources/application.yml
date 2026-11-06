@@ -18,4 +18,5 @@ lab:
     client-id: ${MQTT_CLIENT_ID:lab-device-GW001}
     topic: ${MQTT_TOPIC:lab/devices/GW001/telemetry}
     qos: ${MQTT_QOS:1}
+    message-id: ${MQTT_MESSAGE_ID:}
     retain: false
