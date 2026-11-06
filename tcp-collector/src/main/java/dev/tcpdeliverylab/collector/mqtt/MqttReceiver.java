@@ -60,7 +60,7 @@ public class MqttReceiver implements AutoCloseable {
         try {
             client.connect(options);
             client.subscribe(topic, qos);
-            log.info("MQTT 구독을 시작했습니다. 클라이언트 ID={}, 토픽={}, QoS={}, 새 세션={}",
+            log.info("MQTT 구독을 시작했습니다. 클라이언트 ID={}, 토픽={}, QoS={}, 세션 초기화={}",
                     clientId, topic, qos, cleanSession);
         } catch (MqttException | RuntimeException e) {
             try {
