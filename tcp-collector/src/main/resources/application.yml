@@ -10,9 +10,10 @@ lab:
     port: ${TCP_PORT:9090}
     read-timeout-millis: ${TCP_READ_TIMEOUT_MILLIS:3000}
     aes-key-base64: ${TCP_AES_KEY_BASE64:dFNpAVHJtHE9+1MJH8vfkqJWz15Jy97/}
-  # Reserved for the next learning step. MQTT subscription is not implemented.
+  # 같은 Client ID로 재접속하면 브로커에 보관된 구독과 메시지를 이어받는다.
   mqtt:
     broker-uri: ${MQTT_BROKER_URI:tcp://localhost:1883}
     client-id: ${MQTT_CLIENT_ID:lab-collector}
     topic: ${MQTT_TOPIC:lab/devices/+/telemetry}
     qos: ${MQTT_QOS:1}
+    clean-session: ${MQTT_CLEAN_SESSION:false}
